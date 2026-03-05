@@ -1,0 +1,22 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: aspnetapp
+  namespace: dotnet-demo
+  labels:
+    app: aspnetapp
+spec:
+  lookupPolicy:
+    # When true, the deployment can reference this IS by name
+    # and OpenShift will resolve to the internal registry tag
+    local: false
+  tags:
+    - name: latest
+      from:
+        kind: DockerImage
+        name: mcr.microsoft.com/dotnet/samples:aspnetapp
+      importPolicy:
+        importMode: Legacy
+        scheduled: true       # poll for new digest every 15 min
+      referencePolicy:
+        type: Source          # keep pulling from the original source

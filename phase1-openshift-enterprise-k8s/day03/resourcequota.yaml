@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dotnet-demo-quota
+  namespace: dotnet-demo
+spec:
+  hard:
+    # Compute
+    requests.cpu: "500m"
+    limits.cpu: "2"
+    requests.memory: "256Mi"
+    limits.memory: "1Gi"
+
+    # Object counts — prevent runaway resource creation
+    pods: "10"
+    services: "5"
+    secrets: "20"
+    configmaps: "10"
+    persistentvolumeclaims: "5"
+
+    # OpenShift Routes
+    count/routes.route.openshift.io: "5"

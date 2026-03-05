@@ -1,0 +1,27 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aspnetapp-role
+  namespace: dotnet-demo
+rules:
+  # The app may need to read its own ConfigMaps (e.g. appsettings overrides)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+
+  # The app may need to read Secrets (e.g. DB connection strings)
+  # Scoped to specific secret names in production — here we allow all in namespace
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+
+  # Allow the app to read its own pod info (useful for health/metrics sidecars)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
+
+# What we deliberately DO NOT grant:
+#   - create/update/delete on any resource
+#   - access to other namespaces (Role is namespace-scoped)
+#   - access to nodes, cluster-level resources
+#   - access to deployments, replicasets, daemonsets

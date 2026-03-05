@@ -1,0 +1,60 @@
+---
+- name: Configure aspnetapp-staging namespace
+  hosts: okd_nodes
+  become: false
+  gather_facts: false
+  vars:
+    staging_namespace: "aspnetapp-staging"
+  tasks:
+    - name: Verify staging namespace was created by Terraform
+      ansible.builtin.command: oc get namespace {{ staging_namespace }} -o jsonpath='{.metadata.labels.managed-by}'
+      register: ns_managed_by
+      changed_when: false
+      failed_when: ns_managed_by.stdout != "terraform"
+    - name: Confirm namespace is Terraform-managed
+      ansible.builtin.debug:
+        msg: "Namespace '{{ staging_namespace }}' is managed-by={{ ns_managed_by.stdout }} ✓"
+    - name: Apply staging environment ConfigMap
+      ansible.builtin.shell: |
+        oc apply -n {{ staging_namespace }} -f - <<YAML
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: aspnetapp-config
+          namespace: {{ staging_namespace }}
+          labels:
+            managed-by: ansible
+            environment: staging
+        data:
+          ASPNETCORE_ENVIRONMENT: "Staging"
+          APP_VERSION: "a3f8b2c"
+          PIPELINE_RUN: "day26-terraform-ansible"
+          LOG_LEVEL: "Information"
+        YAML
+      register: configmap_apply
+      changed_when: "'configured' in configmap_apply.stdout or 'created' in configmap_apply.stdout"
+    - name: Report ConfigMap status
+      ansible.builtin.debug:
+        msg: "ConfigMap: {{ configmap_apply.stdout }}"
+    - name: Check staging ResourceQuota
+      ansible.builtin.command: oc get resourcequota staging-quota -n {{ staging_namespace }} -o jsonpath='{.spec.hard.pods}'
+      register: quota_pods
+      changed_when: false
+      failed_when: quota_pods.rc != 0
+    - name: Report quota
+      ansible.builtin.debug:
+        msg: "ResourceQuota 'staging-quota': max pods={{ quota_pods.stdout }} ✓"
+    - name: Check staging-deployer ServiceAccount
+      ansible.builtin.command: oc get sa staging-deployer -n {{ staging_namespace }}
+      register: sa_check
+      changed_when: false
+      failed_when: sa_check.rc != 0
+    - name: Report ServiceAccount
+      ansible.builtin.debug:
+        msg: "ServiceAccount 'staging-deployer' exists ✓"
+    - name: Pipeline summary
+      ansible.builtin.debug:
+        msg:
+          - "Terraform provisioned: Namespace, SA, Role, RoleBinding, ResourceQuota"
+          - "Ansible configured: ConfigMap (env=Staging, version=a3f8b2c)"
+          - "Namespace aspnetapp-staging is ready"

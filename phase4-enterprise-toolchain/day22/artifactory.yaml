@@ -1,0 +1,137 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: artifactory
+
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: artifactory-sa
+  namespace: artifactory
+
+---
+# PersistentVolumeClaim — artifact storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: artifactory-data
+  namespace: artifactory
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: artifactory
+  namespace: artifactory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: artifactory
+  template:
+    metadata:
+      labels:
+        app: artifactory
+    spec:
+      serviceAccountName: artifactory-sa
+      securityContext:
+        fsGroup: 1030          # Artifactory OSS runs as UID 1030
+      initContainers:
+        # Fix permissions on mounted volume
+        - name: fix-perms
+          image: busybox:1.36
+          command: [sh, -c, "chown -R 1030:1030 /var/opt/jfrog/artifactory"]
+          volumeMounts:
+            - name: artifactory-data
+              mountPath: /var/opt/jfrog/artifactory
+          securityContext:
+            runAsUser: 0          # Root only for this init step
+      containers:
+        - name: artifactory
+          image: releases-docker.jfrog.io/jfrog/artifactory-oss:7.98.7
+          ports:
+            - containerPort: 8082   # Main UI + API
+              name: http
+            - containerPort: 8081   # Legacy API (Artifactory ≥7 keeps both)
+              name: api
+          env:
+            - name: JF_SHARED_DATABASE_TYPE
+              value: derby           # Embedded Derby DB (OSS, no external DB needed)
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          livenessProbe:
+            httpGet:
+              path: /artifactory/api/system/ping
+              port: 8082
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /artifactory/api/system/ping
+              port: 8082
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: artifactory-data
+              mountPath: /var/opt/jfrog/artifactory
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1030
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: artifactory-data
+          persistentVolumeClaim:
+            claimName: artifactory-data
+
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: artifactory
+  namespace: artifactory
+spec:
+  selector:
+    app: artifactory
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+
+---
+# Route (OpenShift external access)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: artifactory
+  namespace: artifactory
+spec:
+  host: artifactory.apps-crc.testing
+  to:
+    kind: Service
+    name: artifactory
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

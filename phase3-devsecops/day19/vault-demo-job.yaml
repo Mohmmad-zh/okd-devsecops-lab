@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-demo-sa
+  namespace: devsecops
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-secret-reader
+  namespace: devsecops
+spec:
+  template:
+    spec:
+      serviceAccountName: vault-demo-sa
+      restartPolicy: Never
+      initContainers:
+        - name: vault-init
+          image: hashicorp/vault:1.18.3
+          env:
+            - name: SKIP_SETCAP
+              value: "true"
+            - name: VAULT_ADDR
+              value: "http://vault.vault.svc.cluster.local:8200"
+          command:
+            - sh
+            - -c
+            - |
+              echo "=== Authenticating to Vault via Kubernetes auth ==="
+              JWT=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              RESPONSE=$(vault write -format=json auth/kubernetes/login role=aspnetapp-dev jwt="$JWT")
+              if [ $? -ne 0 ]; then
+                echo "Vault auth failed"
+                exit 1
+              fi
+              VAULT_TOKEN=$(echo "$RESPONSE" | grep -o '"client_token":"[^"]*"' | cut -d'"' -f4)
+              echo "Authenticated. Token prefix: ${VAULT_TOKEN:0:8}..."
+              echo "=== Reading secrets from Vault ==="
+              export VAULT_TOKEN=$VAULT_TOKEN
+              DB_PASS=$(vault kv get -field=db_password secret/aspnetapp/dev)
+              API_KEY=$(vault kv get -field=api_key secret/aspnetapp/dev)
+              CONN_STR=$(vault kv get -field=connection_string secret/aspnetapp/dev)
+              echo "=== Writing secrets to memory-backed volume ==="
+              printf "DB_PASSWORD=%s\nAPI_KEY=%s\nCONNECTION_STRING=%s\n" "$DB_PASS" "$API_KEY" "$CONN_STR" > /vault-secrets/config.env
+              echo "Done. Secrets written to /vault-secrets/config.env"
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault-secrets
+      containers:
+        - name: app
+          image: alpine:3.19
+          command:
+            - sh
+            - -c
+            - |
+              echo "=== Loading Vault-injected secrets ==="
+              export $(cat /vault-secrets/config.env | xargs)
+              echo "DB_PASSWORD: [REDACTED - length $(echo -n $DB_PASSWORD | wc -c)]"
+              echo "API_KEY: [REDACTED - length $(echo -n $API_KEY | wc -c)]"
+              echo "CONNECTION_STRING: $CONNECTION_STRING"
+              echo ""
+              echo "SUCCESS: App running with Vault-managed secrets"
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault-secrets
+      volumes:
+        - name: vault-secrets
+          emptyDir:
+            medium: Memory

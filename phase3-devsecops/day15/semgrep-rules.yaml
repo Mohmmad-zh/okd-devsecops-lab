@@ -1,0 +1,79 @@
+rules:
+  - id: csharp-sql-injection-string-format
+    patterns:
+      - pattern: |
+          var $SQL = $"...{$INPUT}...";
+          ...
+          new SqliteCommand($SQL, ...)
+      - pattern: |
+          var $SQL = "..." + $INPUT + "...";
+          ...
+          new SqliteCommand($SQL, ...)
+      - pattern: |
+          new SqliteCommand($"...{$INPUT}...", ...)
+    message: >
+      SQL Injection (CWE-89): User input '$INPUT' is concatenated directly into a SQL query.
+      Use parameterized queries: cmd.Parameters.AddWithValue("@name", value)
+    languages: [csharp]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 - Injection
+
+  - id: csharp-command-injection
+    patterns:
+      - pattern: System.Diagnostics.Process.Start($CMD, $FORMAT)
+      - pattern: Process.Start($CMD, $FORMAT)
+    message: >
+      Command Injection (CWE-78): Process.Start with user-controlled arguments.
+      Validate and sanitize all inputs used in process execution.
+    languages: [csharp]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-78
+      owasp: A03:2021 - Injection
+
+  - id: csharp-insecure-random
+    pattern: new Random()
+    message: >
+      Insecure Randomness (CWE-338): System.Random is not cryptographically secure.
+      Use System.Security.Cryptography.RandomNumberGenerator instead.
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-338
+      owasp: A02:2021 - Cryptographic Failures
+
+  - id: csharp-hardcoded-secret-const
+    patterns:
+      - pattern: const string $NAME = "$VALUE";
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: (?i)(password|secret|key|token|apikey|api_key|credential)
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: .{8,}
+    message: >
+      Hardcoded Secret (CWE-798): '$NAME' appears to contain a hardcoded credential.
+      Use environment variables, Kubernetes Secrets, or Vault for credentials.
+    languages: [csharp]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: CWE-798
+      owasp: A07:2021 - Identification and Authentication Failures
+
+  - id: csharp-exposed-exception-details
+    pattern: Results.Problem($EX.ToString())
+    message: >
+      Information Exposure (CWE-209): Exception details exposed to the client.
+      Log exceptions server-side and return a generic error message to clients.
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: CWE-209
+      owasp: A05:2021 - Security Misconfiguration

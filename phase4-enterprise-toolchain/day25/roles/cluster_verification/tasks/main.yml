@@ -1,0 +1,49 @@
+---
+- name: Check oc CLI
+  ansible.builtin.command: oc version --client
+  register: oc_version
+  changed_when: false
+
+- name: Report oc version
+  ansible.builtin.debug:
+    msg: "oc CLI: {{ oc_version.stdout_lines[0] }}"
+
+- name: Check cluster connectivity
+  ansible.builtin.command: oc whoami
+  register: oc_whoami
+  changed_when: false
+
+- name: Report cluster user
+  ansible.builtin.debug:
+    msg: "Connected as: {{ oc_whoami.stdout }}"
+
+- name: Verify namespaces
+  ansible.builtin.command: oc get namespace {{ item }}
+  loop:
+    - argocd
+    - vault
+    - monitoring
+    - aspnetapp-dev
+    - nexus
+  register: ns_check
+  changed_when: false
+  failed_when: false
+
+- name: Report namespace status
+  ansible.builtin.debug:
+    msg: "{{ item.item }}: {{ 'EXISTS' if item.rc == 0 else 'MISSING' }}"
+  loop: "{{ ns_check.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Check aspnetapp replicas
+  ansible.builtin.command: >
+    oc get deployment aspnetapp -n aspnetapp-dev
+    -o jsonpath='{.status.availableReplicas}'
+  register: replicas
+  changed_when: false
+  failed_when: false
+
+- name: Report aspnetapp health
+  ansible.builtin.debug:
+    msg: "aspnetapp-dev available replicas: {{ replicas.stdout | default('0') }}"

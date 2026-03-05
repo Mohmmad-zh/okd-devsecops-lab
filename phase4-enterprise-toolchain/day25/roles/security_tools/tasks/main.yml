@@ -1,0 +1,38 @@
+---
+- name: Check Trivy version
+  ansible.builtin.command: trivy --version
+  register: trivy_version
+  changed_when: false
+  failed_when: false
+
+- name: Report Trivy version
+  ansible.builtin.debug:
+    msg: "Trivy: {{ trivy_version.stdout_lines[0] | default('not found') }}"
+
+- name: Check Semgrep
+  ansible.builtin.command: python3 -m semgrep --version
+  register: semgrep_version
+  changed_when: false
+  failed_when: false
+
+- name: Report Semgrep version
+  ansible.builtin.debug:
+    msg: "Semgrep: {{ semgrep_version.stdout | default('not found') }}"
+
+- name: Check Skopeo
+  ansible.builtin.command: skopeo --version
+  register: skopeo_version
+  changed_when: false
+  failed_when: false
+
+- name: Install Skopeo if missing
+  ansible.builtin.apt:
+    name: skopeo
+    state: present
+    update_cache: true
+  become: true
+  when: skopeo_version.rc != 0
+
+- name: Report Skopeo version
+  ansible.builtin.debug:
+    msg: "Skopeo: {{ skopeo_version.stdout_lines[0] | default('installed') }}"

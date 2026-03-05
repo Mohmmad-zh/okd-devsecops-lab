@@ -1,0 +1,96 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-secret-reader-v2
+  namespace: devsecops
+spec:
+  template:
+    spec:
+      serviceAccountName: vault-demo-sa
+      restartPolicy: Never
+      initContainers:
+        - name: vault-init
+          image: hashicorp/vault:1.18.3
+          env:
+            - name: SKIP_SETCAP
+              value: "true"
+            - name: VAULT_ADDR
+              value: "http://vault.vault.svc.cluster.local:8200"
+          command:
+            - sh
+            - -c
+            - |
+              echo "=== Authenticating to Vault via Kubernetes auth ==="
+              JWT=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+
+              # Use Vault HTTP API directly (no CLI UI lookup)
+              AUTH_RESPONSE=$(wget -qO- \
+                --header "Content-Type: application/json" \
+                --post-data "{\"role\":\"vault-demo\",\"jwt\":\"$JWT\"}" \
+                http://vault.vault.svc.cluster.local:8200/v1/auth/kubernetes/login)
+
+              if [ -z "$AUTH_RESPONSE" ]; then
+                echo "ERROR: Empty auth response"
+                exit 1
+              fi
+
+              VAULT_TOKEN=$(echo "$AUTH_RESPONSE" | python3 -c "
+              import sys,json
+              d=json.load(sys.stdin)
+              print(d['auth']['client_token'])
+              ")
+
+              if [ -z "$VAULT_TOKEN" ]; then
+                echo "ERROR: Could not extract token"
+                echo "Response: $AUTH_RESPONSE"
+                exit 1
+              fi
+              echo "Authenticated! Token prefix: ${VAULT_TOKEN:0:10}..."
+
+              echo "=== Reading secrets via Vault HTTP API ==="
+              SECRET_RESPONSE=$(wget -qO- \
+                --header "X-Vault-Token: $VAULT_TOKEN" \
+                http://vault.vault.svc.cluster.local:8200/v1/secret/data/aspnetapp/dev)
+
+              echo "=== Extracting and writing secrets ==="
+              echo "$SECRET_RESPONSE" | python3 -c "
+              import sys,json
+              d=json.load(sys.stdin)
+              data=d['data']['data']
+              lines=[]
+              for k,v in data.items():
+                  lines.append(k.upper()+'='+str(v))
+              with open('/vault-secrets/config.env','w') as f:
+                  f.write('\n'.join(lines)+'\n')
+              print('Written keys: '+', '.join(data.keys()))
+              "
+
+              echo "=== Done: secrets ready in /vault-secrets/config.env ==="
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault-secrets
+      containers:
+        - name: app
+          image: alpine:3.19
+          command:
+            - sh
+            - -c
+            - |
+              echo "=== Loading Vault-injected secrets ==="
+              cat /vault-secrets/config.env | while IFS='=' read -r key val; do
+                export "$key=$val"
+              done
+              source /vault-secrets/config.env
+              echo "DB_PASSWORD: [REDACTED, length=$(wc -c < /vault-secrets/config.env)]"
+              echo "Keys loaded: $(cat /vault-secrets/config.env | cut -d= -f1 | tr '\n' ',')"
+              echo ""
+              echo "SUCCESS: App running with Vault-managed secrets"
+              echo "No secrets stored in Kubernetes Secrets or env vars!"
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault-secrets
+              readOnly: true
+      volumes:
+        - name: vault-secrets
+          emptyDir:
+            medium: Memory

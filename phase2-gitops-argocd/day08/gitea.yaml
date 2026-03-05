@@ -1,0 +1,138 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitea
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitea
+  namespace: gitea
+
+---
+# Gitea needs to run as its own UID (1000) — grant anyuid SCC
+# Applied via: oc adm policy add-scc-to-serviceaccount anyuid -z gitea -n gitea
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-config
+  namespace: gitea
+data:
+  app.ini: |
+    APP_NAME = GitOps Lab
+    RUN_MODE = prod
+    RUN_USER = git
+
+    [server]
+    HTTP_PORT    = 3000
+    ROOT_URL     = http://gitea-gitea.apps-crc.testing/
+    DISABLE_SSH  = true
+    OFFLINE_MODE = true
+
+    [database]
+    DB_TYPE = sqlite3
+    PATH    = /data/gitea/gitea.db
+
+    [security]
+    INSTALL_LOCK        = true
+    SECRET_KEY          = gitops-lab-secret-key-change-in-prod
+    INTERNAL_TOKEN      = gitops-lab-internal-token
+
+    [service]
+    DISABLE_REGISTRATION = true
+    REQUIRE_SIGNIN_VIEW  = false
+
+    [repository]
+    DEFAULT_BRANCH = main
+
+    [log]
+    MODE  = console
+    LEVEL = warn
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  namespace: gitea
+  labels:
+    app: gitea
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitea
+  template:
+    metadata:
+      labels:
+        app: gitea
+    spec:
+      serviceAccountName: gitea
+      containers:
+        - name: gitea
+          image: gitea/gitea:1.22
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GITEA_APP_INI
+              value: /etc/gitea/app.ini
+            - name: GITEA_CUSTOM
+              value: /data/gitea
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gitea
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: gitea-config
+        - name: data
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+  namespace: gitea
+spec:
+  selector:
+    app: gitea
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: gitea
+  namespace: gitea
+spec:
+  to:
+    kind: Service
+    name: gitea
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

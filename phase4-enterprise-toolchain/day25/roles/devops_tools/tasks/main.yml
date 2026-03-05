@@ -1,0 +1,30 @@
+---
+- name: Check Terraform version
+  ansible.builtin.command: terraform version
+  register: tf_version
+  changed_when: false
+  failed_when: false
+
+- name: Report Terraform version
+  ansible.builtin.debug:
+    msg: "Terraform: {{ tf_version.stdout_lines[0] | default('not found') }}"
+
+- name: Check Vault CLI
+  ansible.builtin.command: vault version
+  register: vault_version
+  changed_when: false
+  failed_when: false
+
+- name: Report Vault CLI
+  ansible.builtin.debug:
+    msg: "Vault CLI: {{ vault_version.stdout | default('not found') }}"
+
+- name: Check Argo CD CLI
+  ansible.builtin.command: argocd version --client --short
+  register: argocd_version
+  changed_when: false
+  failed_when: false
+
+- name: Report Argo CD CLI
+  ansible.builtin.debug:
+    msg: "Argo CD CLI: {{ argocd_version.stdout | default('not found') }}"

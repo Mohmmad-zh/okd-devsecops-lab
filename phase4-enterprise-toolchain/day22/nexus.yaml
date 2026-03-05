@@ -1,0 +1,180 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexus
+
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nexus-sa
+  namespace: nexus
+
+---
+# PersistentVolumeClaim — artifact + config storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus-data
+  namespace: nexus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus
+  namespace: nexus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nexus
+  template:
+    metadata:
+      labels:
+        app: nexus
+    spec:
+      serviceAccountName: nexus-sa
+      initContainers:
+        - name: fix-perms
+          image: busybox:1.36
+          command: [sh, -c, "chown -R 200:200 /nexus-data"]
+          volumeMounts:
+            - name: nexus-data
+              mountPath: /nexus-data
+          securityContext:
+            runAsUser: 0
+      containers:
+        - name: nexus
+          image: sonatype/nexus3:3.76.0
+          ports:
+            - containerPort: 8081
+              name: http
+            - containerPort: 8082
+              name: docker-hosted   # Docker hosted repo
+            - containerPort: 8083
+              name: docker-proxy    # Docker Hub proxy
+          env:
+            # Tune JVM heap: min 512MB, max 1.5GB
+            - name: INSTALL4J_ADD_VM_PARAMS
+              value: "-Xms512m -Xmx1536m -XX:MaxDirectMemorySize=512m"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: nexus-data
+              mountPath: /nexus-data
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 200          # nexus3 image uses UID 200
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: nexus-data
+          persistentVolumeClaim:
+            claimName: nexus-data
+
+---
+# Service — main UI
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus
+  namespace: nexus
+spec:
+  selector:
+    app: nexus
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
+    - name: docker-hosted
+      port: 8082
+      targetPort: 8082
+    - name: docker-proxy
+      port: 8083
+      targetPort: 8083
+
+---
+# Route — main UI + API
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: nexus
+  namespace: nexus
+spec:
+  host: nexus.apps-crc.testing
+  to:
+    kind: Service
+    name: nexus
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+---
+# Route — Docker hosted registry (port 8082)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: nexus-docker-hosted
+  namespace: nexus
+spec:
+  host: docker-hosted.apps-crc.testing
+  to:
+    kind: Service
+    name: nexus
+  port:
+    targetPort: docker-hosted
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+---
+# Route — Docker proxy (port 8083)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: nexus-docker-proxy
+  namespace: nexus
+spec:
+  host: docker-proxy.apps-crc.testing
+  to:
+    kind: Service
+    name: nexus
+  port:
+    targetPort: docker-proxy
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

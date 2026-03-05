@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: dotnet-demo-limits
+  namespace: dotnet-demo
+spec:
+  limits:
+    # Container-level defaults — applied when a container omits requests/limits
+    - type: Container
+      default:
+        cpu: "200m"
+        memory: "128Mi"
+      defaultRequest:
+        cpu: "50m"
+        memory: "64Mi"
+      max:
+        cpu: "500m"
+        memory: "256Mi"
+      min:
+        cpu: "10m"
+        memory: "16Mi"
+
+    # Pod-level ceiling (sum of all containers in the pod)
+    - type: Pod
+      max:
+        cpu: "1"
+        memory: "512Mi"

@@ -1,0 +1,51 @@
+---
+# 1. Default-deny all ingress and egress in the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: dotnet-demo
+spec:
+  podSelector: {}       # matches every pod in the namespace
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# 2. Allow ingress ONLY from the OpenShift router (so the Route still works)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-openshift-ingress
+  namespace: dotnet-demo
+spec:
+  podSelector:
+    matchLabels:
+      app: aspnetapp
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network.openshift.io/policy-group: ingress
+
+---
+# 3. Allow egress to DNS (port 53) so the app can resolve names
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-dns
+  namespace: dotnet-demo
+spec:
+  podSelector:
+    matchLabels:
+      app: aspnetapp
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

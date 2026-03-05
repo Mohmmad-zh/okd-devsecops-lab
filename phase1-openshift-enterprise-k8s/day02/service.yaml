@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aspnetapp
+  namespace: dotnet-demo
+  labels:
+    app: aspnetapp
+spec:
+  selector:
+    app: aspnetapp
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP

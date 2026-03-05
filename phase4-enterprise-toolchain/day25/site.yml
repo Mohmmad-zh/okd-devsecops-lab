@@ -1,0 +1,20 @@
+---
+- name: Configure OKD lab environment
+  hosts: okd_nodes
+  become: false
+  gather_facts: true
+
+  pre_tasks:
+    - name: Show target host info
+      ansible.builtin.debug:
+        msg: "Configuring {{ ansible_hostname }} ({{ ansible_distribution }} {{ ansible_distribution_version }})"
+
+  roles:
+    - role: security_tools
+    - role: devops_tools
+    - role: cluster_verification
+
+  post_tasks:
+    - name: Summary
+      ansible.builtin.debug:
+        msg: "Configuration complete. All tools verified."

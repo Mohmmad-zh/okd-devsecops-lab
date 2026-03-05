@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aspnetapp-rolebinding
+  namespace: dotnet-demo
+subjects:
+  - kind: ServiceAccount
+    name: aspnetapp-sa
+    namespace: dotnet-demo
+roleRef:
+  kind: Role
+  name: aspnetapp-role
+  apiGroup: rbac.authorization.k8s.io

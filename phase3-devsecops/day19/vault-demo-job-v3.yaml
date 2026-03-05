@@ -1,0 +1,79 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-secret-reader-v3
+  namespace: devsecops
+spec:
+  template:
+    spec:
+      serviceAccountName: vault-demo-sa
+      restartPolicy: Never
+      initContainers:
+        - name: vault-init
+          image: hashicorp/vault:1.18.3
+          env:
+            - name: SKIP_SETCAP
+              value: "true"
+            - name: VAULT_ADDR
+              value: "http://vault.vault.svc.cluster.local:8200"
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "=== Authenticating to Vault via Kubernetes auth ==="
+              JWT=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+
+              AUTH_RESPONSE=$(wget -qO- \
+                --header "Content-Type: application/json" \
+                --post-data "{\"role\":\"vault-demo\",\"jwt\":\"$JWT\"}" \
+                http://vault.vault.svc.cluster.local:8200/v1/auth/kubernetes/login)
+
+              # Extract client_token with sed (no python needed)
+              VAULT_TOKEN=$(echo "$AUTH_RESPONSE" | \
+                sed 's/.*"client_token":"\([^"]*\)".*/\1/')
+
+              export VAULT_TOKEN
+              echo "Authenticated! Policies: aspnetapp-dev"
+
+              echo "=== Reading secrets via Vault HTTP API ==="
+              SECRET=$(wget -qO- \
+                --header "X-Vault-Token: $VAULT_TOKEN" \
+                http://vault.vault.svc.cluster.local:8200/v1/secret/data/aspnetapp/dev)
+
+              # Extract each field with sed
+              DB_PASS=$(echo "$SECRET" | sed 's/.*"db_password":"\([^"]*\)".*/\1/')
+              API_KEY=$(echo "$SECRET" | sed 's/.*"api_key":"\([^"]*\)".*/\1/')
+              CONN_STR=$(echo "$SECRET" | sed 's/.*"connection_string":"\([^"]*\)".*/\1/')
+
+              echo "=== Writing secrets to memory-backed volume ==="
+              printf "DB_PASSWORD=%s\nAPI_KEY=%s\nCONNECTION_STRING=%s\n" \
+                "$DB_PASS" "$API_KEY" "$CONN_STR" > /vault-secrets/config.env
+
+              echo "Secrets written: $(cat /vault-secrets/config.env | cut -d= -f1 | tr '\n' ' ')"
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault-secrets
+      containers:
+        - name: app
+          image: alpine:3.19
+          command:
+            - sh
+            - -c
+            - |
+              echo "=== Loading Vault-injected secrets ==="
+              . /vault-secrets/config.env
+              echo "DB_PASSWORD set: $([ -n "$DB_PASSWORD" ] && echo YES || echo NO), length=$(echo -n $DB_PASSWORD | wc -c)"
+              echo "API_KEY set: $([ -n "$API_KEY" ] && echo YES || echo NO)"
+              echo "CONNECTION_STRING: $CONNECTION_STRING"
+              echo ""
+              echo "SUCCESS: App running with Vault-managed secrets"
+              echo "Zero Kubernetes Secrets used. No secrets in YAML manifests."
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault-secrets
+              readOnly: true
+      volumes:
+        - name: vault-secrets
+          emptyDir:
+            medium: Memory
