@@ -59,7 +59,7 @@ jobs:
 
   # ──────────────────────────────────────────────
   # Stage 2: Container scan — Trivy
-  # Scans the same image used in the lab
+  # Builds a patched image (apk upgrade) then scans
   # ──────────────────────────────────────────────
   container-scan:
     name: Container Scan (Trivy)
@@ -68,10 +68,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Build patched image
+        run: docker build -t aspnetapp-patched phase3-devsecops/day16/
+
       - name: Run Trivy — block on CRITICAL CVEs
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: mcr.microsoft.com/dotnet/samples:aspnetapp
+          image-ref: aspnetapp-patched
           format: table
           exit-code: '1'
           severity: CRITICAL
@@ -80,7 +83,7 @@ jobs:
       - name: Run Trivy — full scan (all severities, for report)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: mcr.microsoft.com/dotnet/samples:aspnetapp
+          image-ref: aspnetapp-patched
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH,MEDIUM
@@ -102,10 +105,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Build patched image
+        run: docker build -t aspnetapp-patched phase3-devsecops/day16/
+
       - name: Generate SBOM with Trivy (CycloneDX format)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: mcr.microsoft.com/dotnet/samples:aspnetapp
+          image-ref: aspnetapp-patched
           format: cyclonedx
           output: sbom.cdx.json
 
@@ -171,5 +177,5 @@ jobs:
           echo "| SBOM Generation | ${{ needs.sbom.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Manifest Scan | ${{ needs.manifest-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Image scanned: \`mcr.microsoft.com/dotnet/samples:aspnetapp\`" >> $GITHUB_STEP_SUMMARY
+          echo "Image scanned: \`aspnetapp-patched\` (base: mcr.microsoft.com/dotnet/samples:aspnetapp + apk upgrade)" >> $GITHUB_STEP_SUMMARY
           echo "Custom Semgrep rules: \`phase3-devsecops/day15/semgrep-rules.yaml\`" >> $GITHUB_STEP_SUMMARY
